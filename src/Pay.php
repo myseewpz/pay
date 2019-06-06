@@ -15,6 +15,7 @@ use Yansongda\Supports\Str;
 /**
  * @method static Alipay alipay(array $config) 支付宝
  * @method static Wechat wechat(array $config) 微信
+ * @method static Wechat cmbc(array $config) 民生银行
  */
 class Pay
 {

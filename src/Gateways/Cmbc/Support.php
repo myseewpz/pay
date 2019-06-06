@@ -106,8 +106,6 @@ class Support
     {
         if (php_sapi_name() === 'cli' || !(self::$instance instanceof self)) {
             self::$instance = new self($config);
-
-            self::setDevKey();
         }
 
         return self::$instance;
@@ -354,31 +352,7 @@ class Support
 
         return $default;
     }
-
-    /**
-     * Get app id according to param type.
-     *
-     * @author yansongda <me@yansongda.cn>
-     *
-     * @param string $type
-     *
-     * @return string
-     */
-    public static function getTypeName($type = ''): string
-    {
-        switch ($type) {
-            case '':
-                $type = 'app_id';
-                break;
-            case 'app':
-                $type = 'appid';
-                break;
-            default:
-                $type = $type.'_id';
-        }
-
-        return $type;
-    }
+    
 
     /**
      * Get Base Uri.
@@ -391,76 +365,7 @@ class Support
     {
         return $this->baseUri;
     }
-
-    /**
-     * processingApiResult.
-     *
-     * @author yansongda <me@yansongda.cn>
-     *
-     * @param       $endpoint
-     * @param array $result
-     *
-     * @throws GatewayException
-     * @throws InvalidArgumentException
-     * @throws InvalidSignException
-     *
-     * @return Collection
-     */
-    protected static function processingApiResult($endpoint, array $result)
-    {
-        if (!isset($result['return_code']) || $result['return_code'] != 'SUCCESS') {
-            throw new GatewayException(
-                'Get Wechat API Error:'.($result['return_msg'] ?? $result['retmsg'] ?? ''),
-                $result
-            );
-        }
-
-        if (isset($result['result_code']) && $result['result_code'] != 'SUCCESS') {
-            throw new BusinessException(
-                'Wechat Business Error: '.$result['err_code'].' - '.$result['err_code_des'],
-                $result
-            );
-        }
-
-        if ($endpoint === 'pay/getsignkey' ||
-            strpos($endpoint, 'mmpaymkttransfers') !== false ||
-            self::generateSign($result) === $result['sign']) {
-            return new Collection($result);
-        }
-
-        Events::dispatch(Events::SIGN_FAILED, new Events\SignFailed('Wechat', '', $result));
-
-        throw new InvalidSignException('Wechat Sign Verify FAILED', $result);
-    }
-
-    /**
-     * setDevKey.
-     *
-     * @author yansongda <me@yansongda.cn>
-     *
-     * @throws GatewayException
-     * @throws InvalidArgumentException
-     * @throws InvalidSignException
-     * @throws Exception
-     *
-     * @return Support
-     */
-    private static function setDevKey()
-    {
-        if (self::$instance->mode == Wechat::MODE_DEV) {
-            $data = [
-                'mch_id'    => self::$instance->mch_id,
-                'nonce_str' => Str::random(),
-            ];
-            $data['sign'] = self::generateSign($data);
-
-            $result = self::requestApi('pay/getsignkey', $data);
-
-            self::$instance->config->set('key', $result['sandbox_signkey']);
-        }
-
-        return self::$instance;
-    }
+    
 
     /**
      * Set Http options.
@@ -479,9 +384,20 @@ class Support
         return $this;
     }
 
-    public static function cmbcCashierEncode($data)
+    public static function cmbcCashierDecode($str)
     {
 //        dd(self::$instance->config->get('jE'));
+//        $str = json_encode($data,JSON_UNESCAPED_UNICODE);
+        $str = base64_decode($str);
+        $data = self::asdkVerifyDecode($str);
+
+        return $data;
+    }
+
+    
+
+    public static function cmbcCashierEncode($data)
+    {
         $str = json_encode($data,JSON_UNESCAPED_UNICODE);
         $str = base64_encode($str);
         $data = self::sadkSignAllInOne($str);
@@ -492,12 +408,26 @@ class Support
     private static function sadkSignAllInOne($base64Plain)
     {
         try {
-
-            $ret = self::lajp_call("cfca.sadk.cmbc.patch.tools.php.PHPDecryptKitAllInOne::SignAndEncryptMessage",  self::$instance->config->get('privatePath'),
+            $ret = self::lajp_call("cfca.sadk.cmbc.patch.tools.php.PHPDecryptKitAllInOne::SignAndEncryptMessage",
+                self::$instance->config->get('privatePath'),
                 self::$instance->config->get('privatePassword'),
-                self::$instance->config->get('publicPath'),$base64Plain);
+                self::$instance->config->get('publicPath'), $base64Plain);
             return $ret; // 70010001的时候说明 没有初始化 需要调用sadkInitializeByParam 进行初始化
         } catch (Exception $ret) {
+            return $e;
+        }
+    }
+
+    private static function asdkVerifyDecode($str)
+    {
+        try {
+
+            $ret = self::lajp_call("cfca.sadk.cmbc.patch.tools.php.PHPDecryptKitAllInOne::DecryptAndVerifyMessage",
+                self::$instance->config->get('privatePath'),
+                self::$instance->config->get('privatePassword'),
+                self::$instance->config->get('publicPath'), $str);
+            return $ret;
+        } catch (Exception $e) {
             return $e;
         }
     }

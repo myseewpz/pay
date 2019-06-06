@@ -8,12 +8,14 @@
 
 namespace Yansongda\Pay\Gateways;
 
-
+use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Yansongda\Pay\Contracts\GatewayApplicationInterface;
 use Yansongda\Pay\Contracts\GatewayInterface;
 use Yansongda\Pay\Events;
+use Yansongda\Pay\Exceptions\InvalidConfigException;
 use Yansongda\Pay\Exceptions\InvalidGatewayException;
+use Yansongda\Pay\Exceptions\InvalidSignException;
 use Yansongda\Pay\Gateways\Cmbc\Support;
 use Yansongda\Supports\Collection;
 use Yansongda\Supports\Config;
@@ -94,18 +96,54 @@ class Cmbc implements GatewayApplicationInterface
     }
 
     /**
-     * Verify a request.
+     * Verify sign.
      *
-     * @param string|null $content
-     * @param bool $refund
-     *
-     * @return Collection
      * @author yansongda <me@yansongda.cn>
      *
+     * @param null|array $data
+     * @param bool       $refund
+     *
+     * @throws InvalidSignException
+     * @throws InvalidConfigException
+     *
+     * @return Collection
      */
-    public function verify($content, $refund)
+    public function verify($data = null, $refund = false): Collection
     {
-        // TODO: Implement verify() method.
+        if (is_null($data)) {
+            $request = Request::createFromGlobals();
+
+            $data = $request->request->count() > 0 ? $request->request->all() : $request->query->all();
+        }
+
+        Events::dispatch(Events::REQUEST_RECEIVED, new Events\RequestReceived('cmbc', '', $data));
+
+        $data = Support::cmbcCashierDecode($data['req']);
+        
+        if (preg_match('/\$ERRCODE/', $data)) {
+            $data = Support::cmbcCashierDecode($data['req']);
+            if (preg_match('/\$ERRCODE/', $data)) {
+
+                Events::dispatch(Events::SIGN_FAILED, new Events\SignFailed('cmbc', '', $data));
+
+                throw new InvalidSignException('cmbc Sign Verify FAILED', $data);
+            }
+        }
+        $data = base64_decode($data);
+        $data = json_decode($data, true);
+        $data['orderNum'] = substr($data['orderNo'], strlen($this->payload['merchInfo']));
+
+//        return $data;
+//        if (is_array($data)) {
+//            $data['ordenum'] = substr($data['orderNo'], strlen($config->get('corpID')));
+//            if (count($arr) > 4) {
+//                if ($arr['status'] == '02') {
+//                    return new Collection($data);
+//                }
+//            }
+//        }
+        return new Collection($data);
+
     }
 
     /**
@@ -190,7 +228,12 @@ class Cmbc implements GatewayApplicationInterface
      */
     public function success()
     {
-        // TODO: Implement success() method.
+        return ['msgCode' => 01];
+    }
+
+    public function fail()
+    {
+        return ['msgCode' => 02];
     }
 
 
